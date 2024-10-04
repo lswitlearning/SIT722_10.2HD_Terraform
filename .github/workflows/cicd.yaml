@@ -1,0 +1,86 @@
+name: CI/CD for Kubernetes Deployment
+#test again
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      VERSION: ${{ github.sha }}
+      AWS_REGION: ap-southeast-2
+      ECR_REPOSITORY_NAME: flixtube2024
+      EKS_CLUSTER_NAME: flixtube2024
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+
+  #Step 1: Checkout repository
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+  #Step 2: Configure AWS credentials using GitHub secrets
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+  # Step3: Set up Terraform
+    - uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.9.0
+
+  # Step4: Terraform 
+    - name: Terraform init
+      run: terraform init
+      working-directory: ./terraform
+
+    - name: Terraform Plan
+      run: terraform plan
+      working-directory: ./terraform
+
+    - name: Terraform Apply
+      run: terraform apply -auto-approve
+      working-directory: ./terraform
+
+  # Step 5: Log in to Amazon ECR
+    - name: Log in to Amazon ECR
+      run: |
+         aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+
+  # Step 6: Run build-image.sh script
+    - name: Build Docker Image
+      run: |
+        chmod +x ./scripts/build-image.sh
+        ./scripts/build-image.sh
+
+
+  # Step 7: Push Docker image to ECR using push-image.sh
+    - name: Push Docker Image to ECR
+      run: |
+        chmod +x ./scripts/push-image.sh
+        ./scripts/push-image.sh
+
+
+  # Step 8: Substitute environment variables in the deployment file
+    - name: substitute environment variables
+      run: envsubst < scripts/deploy.yaml > scripts/deploy-withenv.yaml
+
+  # Step 9: Set up kubectl context
+    - name: Set up kubectl context
+      run: |
+        aws eks --region ${{ env.AWS_REGION }} update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }}
+
+  # Step 10: Deploy to EKS
+    - name: Deploy to EKS
+      run: |
+        chmod +x ./scripts/deploy.sh
+        ./scripts/deploy.sh "${{ env.ECR_REPOSITORY_NAME }}" "${{ env.VERSION }}"
