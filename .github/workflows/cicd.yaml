@@ -20,7 +20,7 @@ jobs:
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
 
 
-  #Step 1: Checkout repository
+  #Step 1: Checkout repository ###
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
